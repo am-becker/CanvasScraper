@@ -134,38 +134,42 @@ class CanvasApi:
         )
         return response.json()
 
-
-
-    def get_courses(self, only_favorites: bool = True) -> list:
-        """Returns the enrolled courses (max 250 per page)."""
+    def get_courses(self, only_favorites: bool = False) -> list:
+        """Returns enrolled courses, including active/past/inactive/etc."""
 
         def ensure_list(value):
             return value if isinstance(value, list) else []
 
-        # When including past courses, use /courses because it supports enrollment_state=completed
-        active_courses = ensure_list(
-            self.__get("courses", params={"enrollment_state": "active", "per_page": 100})
-        )
-        completed_courses = ensure_list(
-            self.__get("courses", params={"enrollment_state": "completed", "per_page": 100})
-        )
+        states = ["active", "completed", "inactive", "invited", "deleted"]
+        courses = {}
 
-        # If caller still wants favorites, use favorites only as a filter for current courses
-        # and always include completed courses.
+        for state in states:
+            result = self.__get(
+                "courses",
+                params={
+                    "enrollment_state": state,
+                    "per_page": 100
+                }
+            )
+            
+            if isinstance(result, list):
+                for c in result:
+                    if isinstance(c, dict) and "id" in c:
+                        courses[c["id"]] = c
+                print_c(f'Retreived {len(result)} {state} courses', "new", 0)
+
         if only_favorites:
             favorite_courses = ensure_list(
                 self.__get("users/self/favorites/courses", params={"per_page": 100})
             )
-            favorite_ids = {c["id"] for c in favorite_courses if isinstance(c, dict) and "id" in c}
-            active_courses = [c for c in active_courses if c.get("id") in favorite_ids]
+            favorite_ids = {
+                c["id"] for c in favorite_courses
+                if isinstance(c, dict) and "id" in c
+            }
 
-        # Merge by course ID
-        merged = {}
-        for course in active_courses + completed_courses:
-            if isinstance(course, dict) and "id" in course:
-                merged[course["id"]] = course
+            return [c for c in courses.values() if c.get("id") in favorite_ids]
 
-        return list(merged.values())
+        return list(courses.values())
 
 
     def get_folders(self, course_id: int) -> list:
@@ -241,10 +245,10 @@ class CanvasDownloader(CanvasApi):
 
     out_dir: str
 
-    def download_files(self, all_courses=False, use="all"):
+    def download_files(self, all_courses=False, use="favorite"):
         """Downloads files from Canvas, including modules, folders, and pages."""
-        print_c(f"Getting {'all courses' if use == 'all' else 'only favorited courses (pass -all flag to get all)'}...", "existing", 0)
-        courses = self.get_courses(not all_courses)
+        print_c(f"Getting {'all courses' if not use == 'favorite' else 'only favorited courses (remove -favorite flag to get all)'}...", "existing", 0)
+        courses = self.get_courses(all_courses)
 
         print("Retreived course list:")
         for course in courses:
@@ -634,10 +638,10 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--all", action="store_true", help="Get all courses instead of only favorites"
+        "--favorites", action="store_true", help="Get only favorite courses"
     )
 
     args = parser.parse_args()
 
     API = CanvasDownloader(args.domain, args.token, args.o)
-    API.download_files(args.all, args.f)
+    API.download_files(args.favorites, args.f)

@@ -40,7 +40,7 @@ You will get a token with a form like `7XXX~XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`. C
 Usage is simple:
 
 ```shell
-python canvas.py <YOUR-TOKEN> <CANVAS-DOMAIN> --all
+python canvas.py <YOUR-TOKEN> <CANVAS-DOMAIN>
 ```
 
 Where:
@@ -48,11 +48,18 @@ Where:
 - `YOUR-TOKEN` is the token access of Canvas, generated from your settings page, see [above](#generate-canvas-api-token) for instructions (for me, this is `https://canvas.mit.edu/profile/settings`)
 - `CANVAS-DOMAIN` the Canvas domain where files will be downloaded.
 
-You should be prompted with a list of available courses to download from, if it's just a few classes make sure you include the `--all` flag to ensure it's all classes and not just favorites.
+You should be prompted with a list of available courses to download from.
 
-Example:
+If you want to download just your favorite courses, you can use the `--favorite` flag to ensure it's just your favorites. The script's default behavior is to attempt to download all courses, including past, invited, inactive and current courses.
+
+Example (download all courses):
 ```shell
-python canvas.py 7XXX~XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX canvas.mit.edu --all
+python canvas.py 7XXX~XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX canvas.mit.edu
+```
+
+Example (download just your favorite courses):
+```shell
+python canvas.py 7XXX~XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX canvas.mit.edu --favorite
 ```
 
 Optional parameters:
@@ -60,7 +67,7 @@ Optional parameters:
 - `-f FROM`: where to download the files, can be modules,
   folders, pages or all (default: `all`).
 - `-o DIR`: name of the output directory (default: `CanvasFiles`).
-- `--all`: include all courses instead of only favorites.
+- `--favorite`: include just your favorited courses instead of all of them.
 
 Related projects:
 
