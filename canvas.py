@@ -12,6 +12,8 @@ import traceback
 import colorama
 import requests
 
+import requests.exceptions
+
 colorama.init(autoreset=True)
 
 
@@ -128,6 +130,7 @@ class CanvasApi:
             headers={"Authorization": f"Bearer {self.token}"},
             params=params,  # Correctly merged parameters
             **kwarg,
+            timeout=30
         )
         return response.json()
 
@@ -135,8 +138,34 @@ class CanvasApi:
 
     def get_courses(self, only_favorites: bool = True) -> list:
         """Returns the enrolled courses (max 250 per page)."""
-        endpoint = "users/self/favorites/courses" if only_favorites else "courses"
-        return self.__get(endpoint, params={"per_page": 250})
+
+        def ensure_list(value):
+            return value if isinstance(value, list) else []
+
+        # When including past courses, use /courses because it supports enrollment_state=completed
+        active_courses = ensure_list(
+            self.__get("courses", params={"enrollment_state": "active", "per_page": 100})
+        )
+        completed_courses = ensure_list(
+            self.__get("courses", params={"enrollment_state": "completed", "per_page": 100})
+        )
+
+        # If caller still wants favorites, use favorites only as a filter for current courses
+        # and always include completed courses.
+        if only_favorites:
+            favorite_courses = ensure_list(
+                self.__get("users/self/favorites/courses", params={"per_page": 100})
+            )
+            favorite_ids = {c["id"] for c in favorite_courses if isinstance(c, dict) and "id" in c}
+            active_courses = [c for c in active_courses if c.get("id") in favorite_ids]
+
+        # Merge by course ID
+        merged = {}
+        for course in active_courses + completed_courses:
+            if isinstance(course, dict) and "id" in course:
+                merged[course["id"]] = course
+
+        return list(merged.values())
 
 
     def get_folders(self, course_id: int) -> list:
@@ -179,7 +208,8 @@ class CanvasApi:
         response = requests.get(
             pages_api_url, 
             headers={"Authorization": f"Bearer {self.token}"},
-            params={"per_page": 250}  # Ensuring 250 pages per request
+            params={"per_page": 250},  # Ensuring 250 pages per request
+            timeout=30
         )
 
         if response.status_code != 200:
@@ -218,9 +248,12 @@ class CanvasDownloader(CanvasApi):
 
         print("Retreived course list:")
         for course in courses:
-            cc = course.get("course_code")
-            if cc:
-                print_c(cc, "group", 0)
+            try:
+                cc = course.get("course_code")
+                if cc:
+                    print_c(cc, "group", 0)
+            except Exception as e:
+                print_c("Error getting courses: " + e, type_="error", padding=0)
 
         if not input("Do you want to continue and download all content? (yY/nN)").lower() == "y":
             print("Exiting. Have a good day :)")
@@ -361,7 +394,7 @@ class CanvasDownloader(CanvasApi):
         api_url = f"https://{self.domain}/api/v1/courses/{course_id}/pages/{page_slug}"
 
         try:
-            response = requests.get(api_url, headers={"Authorization": f"Bearer {self.token}"})
+            response = requests.get(api_url, headers={"Authorization": f"Bearer {self.token}"}, timeout=30)
             
             if response.status_code != 200:
                 print_c(f"Failed to fetch page: {page_url}", "error", 2)
@@ -390,7 +423,7 @@ class CanvasDownloader(CanvasApi):
                     local_iframe_file = os.path.join(files_folder, iframe_file_name)
 
                     # Download iframe content
-                    iframe_response = requests.get(iframe_src, headers={"Authorization": f"Bearer {self.token}"}, allow_redirects=True)
+                    iframe_response = requests.get(iframe_src, headers={"Authorization": f"Bearer {self.token}"}, allow_redirects=True, timeout=30)
                     if iframe_response.status_code == 200:
                         with open(sanitize_filename(local_iframe_file), "w", encoding="utf-8") as iframe_file:
                             iframe_file.write(iframe_response.text)
@@ -528,7 +561,7 @@ class CanvasDownloader(CanvasApi):
                 file_path = os.path.join(dir_path, file_name)
 
             # Start the actual file download (only if needed)
-            download_response = requests.get(file_url, headers={"Authorization": f"Bearer {self.token}"}, allow_redirects=True, stream=not downloadBodyOnly)
+            download_response = requests.get(file_url, headers={"Authorization": f"Bearer {self.token}"}, allow_redirects=True, stream=not downloadBodyOnly, timeout=120)
 
             # Ensure content length for progress bar
             content_len = download_response.headers.get("Content-Length")
@@ -560,11 +593,18 @@ class CanvasDownloader(CanvasApi):
 
             # Mark file as downloaded in this course
             self.download_cache[file_url] = True
+
+            
+        except requests.exceptions.RequestException as e:
+            # network / HTTP errors (ConnectionError, Timeout, etc.)
+            print_c(f"Network error downloading {name or file_url}: {e}", "error", 2)
+            return False
+
         except Exception as e:
-            print_c(f"Error in file_download. Exception type: {type(e).__name__}", "error", 2)
-            print(f"Exception message: {str(e)}", "error", 2)
-            print("Traceback details:", "error", 2)
+            # unexpected errors
+            print_c(f"Unexpected error in file_download: {type(e).__name__}: {e}", "error", 2)
             traceback.print_exc()
+            return False
 
 
 
